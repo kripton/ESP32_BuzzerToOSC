@@ -1,7 +1,7 @@
 ///// INCLUDES /////
 #include <WiFi.h>
 #include <ArduinoOSC.h>
-#include <Adafruit_NeoPixel.h>
+#include <NeoPixelBus.h>
 #include <ESPAsyncE131.h>
 
 ///// CONFIG / CONSTANTS /////
@@ -37,7 +37,7 @@ unsigned long debounceTime = 500; // ms
 ///// Globals /////
 OscWiFi osc;
 e131_packet_t e131_packet;
-Adafruit_NeoPixel pixels(NUMLEDS, PIN_LEDSTRIP, NEO_GRB + NEO_KHZ800);
+NeoPixelBus<NeoGrbFeature, Neo800KbpsMethod> pixels(NUMLEDS, PIN_LEDSTRIP);
 ESPAsyncE131 e131(1);
 unsigned long lastDetection = 0;
 SemaphoreHandle_t syncSemaphore;
@@ -49,12 +49,12 @@ void IRAM_ATTR handleInterrupt() {
 
 void setup() {
   // Initialize the LED string in RED
-  pixels.begin();
-  pixels.clear();
+  pixels.Begin();
+  pixels.ClearTo(RgbColor(0, 0, 0));
   for(int i=0; i < NUMLEDS; i++) {
-    pixels.setPixelColor(i, pixels.Color((i * 10) + 10, 0, 0));
+    pixels.SetPixelColor(i, RgbColor((i * 10) + 10, 0, 0));
   }
-  pixels.show();
+  pixels.Show();
 
   // Initialize the serial console for status messages
   Serial.begin(115200);
@@ -71,11 +71,11 @@ void setup() {
   Serial.println("Connected to the WiFi network");
 
   // Set the LEDs to GREEN briefly
-  pixels.clear();
+  pixels.ClearTo(RgbColor(0, 0, 0));
   for(int i = 0; i < NUMLEDS; i++) {
-    pixels.setPixelColor(i, pixels.Color(0, i, 0));
+    pixels.SetPixelColor(i, RgbColor(0, i, 0));
   }
-  pixels.show();
+  pixels.Show();
   delay(500);
 
   // Init OSC
@@ -91,8 +91,8 @@ void setup() {
   e131.begin(E131_MULTICAST, E131_UNIVERSE); 
 
   // Clear LEDs
-  pixels.clear();
-  pixels.show();
+  pixels.ClearTo(RgbColor(0, 0, 0));
+  pixels.Show();
 }
 
 // Looooooooop
@@ -110,12 +110,12 @@ void loop() {
       e131_packet.property_values[1]             // Dimmer data for Channel 1
     );
 
-    pixels.clear();
+    pixels.ClearTo(RgbColor(0, 0, 0));
     for(int i = 0; i < NUMLEDS; i++) {
       int chan = E131_STARTCHAN + i*3;
-      pixels.setPixelColor(i, pixels.Color(e131_packet.property_values[chan], e131_packet.property_values[chan+1], e131_packet.property_values[chan+2]));
+      pixels.SetPixelColor(i, RgbColor(e131_packet.property_values[chan], e131_packet.property_values[chan+1], e131_packet.property_values[chan+2]));
     }
-    pixels.show();
+    pixels.Show();
   }
 
   //xSemaphoreTake(syncSemaphore, portMAX_DELAY);
@@ -126,5 +126,5 @@ void loop() {
     lastDetection = millis();
   }
 
-  delay(50);
+  delay(20);
 }
