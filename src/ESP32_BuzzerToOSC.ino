@@ -90,7 +90,6 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(PIN_BUZZER), handleInterrupt, FALLING);
 
   // Set up DMX receiver
-  //e131.begin(E131_MULTICAST, E131_UNIVERSE, 1); 
   e131.begin(E131_MULTICAST, E131_UNIVERSE); 
 
   // Clear LEDs
@@ -101,10 +100,11 @@ void setup() {
 // Looooooooop
 void loop() {
   // DMX input to LEDs
-  Serial.printf("E131 empty: %d\n", e131.isEmpty());
+  //Serial.printf("E131 empty: %d\n", e131.isEmpty());
   if (!e131.isEmpty()) {
     e131.pull(&e131_packet);     // Pull packet from ring buffer
 
+/*
     Serial.printf("Universe %u / %u Channels | Packet#: %u / Errors: %u / CH1: %u\n",
       htons(e131_packet.universe),                 // The Universe for this packet
       htons(e131_packet.property_value_count) - 1, // Start code is ignored, we're interested in dimmer data
@@ -112,6 +112,7 @@ void loop() {
       e131.stats.packet_errors,               // Packet error counter
       e131_packet.property_values[1]             // Dimmer data for Channel 1
     );
+*/
 
     pixels.ClearTo(RgbColor(0, 0, 0));
     for(int i = 0; i < NUMLEDS; i++) {
