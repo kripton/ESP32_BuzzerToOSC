@@ -38,7 +38,6 @@ unsigned long debounceTime = 500; // ms
 unsigned int  pingCount = 0;
 
 ///// Globals /////
-OscWiFi osc;
 e131_packet_t e131_packet;
 NeoPixelBus<NeoGrbFeature, Neo800KbpsMethod> pixels(NUMLEDS, PIN_LEDSTRIP);
 ESPAsyncE131 e131(1);
@@ -80,9 +79,6 @@ void setup() {
   }
   pixels.Show();
   delay(500);
-
-  // Init OSC
-  osc.begin(osc_port);
 
   // Init Buzzer input
   syncSemaphore = xSemaphoreCreateBinary();
@@ -126,14 +122,14 @@ void loop() {
   // Buzzer input
   if (((millis() - lastDetection) > debounceTime) && !gpio_get_level((gpio_num_t)PIN_BUZZER)) {
     Serial.println("Buzzer input detected");
-    osc.send(osc_host, osc_port, osc_command_trigger, 1);
+    OscWiFi.send(osc_host, osc_port, osc_command_trigger, 1);
     lastDetection = millis();
   }
 
   pingCount++;
   if (pingCount > 100) {
     pingCount = 0;
-    osc.send(osc_host, osc_port, osc_command_ping, 1);
+    OscWiFi.send(osc_host, osc_port, osc_command_ping, WiFi.localIP().toString());
   }
 
   delay(20);
