@@ -8,13 +8,14 @@
 const char* wifi_ssid = "MySSID";
 const char* wifi_password =  "MyPW";
 
-IPAddress   my_ip(192, 168, 2, 252);
+IPAddress   my_ip(172, 17, 206, 31);
 IPAddress   my_gw(0, 0, 0, 0);
-IPAddress   my_netmask(255, 255, 255, 0);
+IPAddress   my_netmask(255, 255, 0, 0);
 
-const char* osc_command =  "/buzzer/rot";
-const char* osc_host = "192.168.2.248";
-const int   osc_port = 7703;
+const char* osc_command_trigger =  "/buzzer/trigger/rot";
+const char* osc_command_ping =  "/buzzer/ping/rot";
+const char* osc_host = "255.255.255.255";
+const int   osc_port = 6206;
 
 #define     PIN_BUZZER   16
 #define     PIN_LEDSTRIP 21
@@ -33,6 +34,8 @@ const byte interruptPin = 16;
 
 unsigned long lastDetection = 0;
 unsigned long debounceTime = 500; // ms
+
+unsigned int  pingCount = 0;
 
 ///// Globals /////
 OscWiFi osc;
@@ -122,8 +125,14 @@ void loop() {
   // Buzzer input
   if (((millis() - lastDetection) > debounceTime) && !gpio_get_level((gpio_num_t)PIN_BUZZER)) {
     Serial.println("Buzzer input detected");
-    osc.send(osc_host, osc_port, "/buzzer/rot", 1);
+    osc.send(osc_host, osc_port, osc_command_trigger, 1);
     lastDetection = millis();
+  }
+
+  pingCount++;
+  if (pingCount > 100) {
+    pingCount = 0;
+    osc.send(osc_host, osc_port, osc_command_ping, 1);
   }
 
   delay(20);
