@@ -12,12 +12,13 @@ IPAddress   my_ip(172, 17, 206, 31);
 IPAddress   my_gw(0, 0, 0, 0);
 IPAddress   my_netmask(255, 255, 0, 0);
 
-const char* osc_command_trigger =  "/buzzer/trigger/rot";
-const char* osc_command_ping =  "/buzzer/ping/rot";
+const char* osc_command_trigger =  "/buzzer/red/trigger";
+const char* osc_command_ping =  "/buzzer/red/ping";
 const char* osc_host = "255.255.255.255";
 const int   osc_port = 6206;
 
 #define     PIN_BUZZER   16
+#define     PIN_BATADC   36
 #define     PIN_LEDSTRIP 21
 #define     NUMLEDS      20
 
@@ -34,8 +35,9 @@ const byte interruptPin = 16;
 
 unsigned long lastDetection = 0;
 unsigned long debounceTime = 500; // ms
-
 unsigned int  pingCount = 0;
+unsigned int  e131_okay = 0;
+
 
 ///// Globals /////
 e131_packet_t e131_packet;
@@ -109,7 +111,7 @@ void loop() {
       e131_packet.property_values[1]             // Dimmer data for Channel 1
     );
 */
-
+    e131_okay = 1;
     pixels.ClearTo(RgbColor(0, 0, 0));
     for(int i = 0; i < NUMLEDS; i++) {
       int chan = E131_STARTCHAN + i*3;
@@ -129,7 +131,14 @@ void loop() {
   pingCount++;
   if (pingCount > 100) {
     pingCount = 0;
-    OscWiFi.send(osc_host, osc_port, osc_command_ping, WiFi.localIP().toString());
+    unsigned long adcVal = analogRead(PIN_BATADC);
+    // 0 = 0V, 4096 = 3.3V
+    // Voltage divider with 220k (high side) and 100k (low side)
+    // => 4096 = 10.56V
+    float batVolt = adcVal * 10.56 / 4096;
+    Serial.printf("BAT ADC: %u BAT VOLT: %f E1.31_Okay: %u\n", analogRead(PIN_BATADC), batVolt, e131_okay);
+    OscWiFi.send(osc_host, osc_port, osc_command_ping, WiFi.localIP().toString(), batVolt, e131_okay);
+    e131_okay = 0;
   }
 
   delay(20);
