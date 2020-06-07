@@ -128,7 +128,7 @@ void loop() {
     // => 4096 = 10.56V
     float batVolt = adcVal * 10.56 / 4096;
     Serial.printf("BAT ADC: %u BAT VOLT: %f E1.31_Okay: %u\n", analogRead(PIN_BATADC), batVolt, e131_okay);
-    OscWiFi.send(osc_host, osc_port, osc_command_ping, WiFi.localIP().toString(), batVolt, e131_okay);
+    OscWiFi.send(osc_host, osc_port, osc_command_ping, batVolt, e131_okay);
     e131_okay = 0;
   }
 
