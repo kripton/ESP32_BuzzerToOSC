@@ -18,8 +18,17 @@ const char* osc_command_ping =  "/buzzer/red/ping";
 const char* osc_host = "255.255.255.255";
 const int   osc_port = 6206;
 
+// Local DMX outputs (X1, X2)
+#define     DMX1_UART      UART_NUM_1
+#define     DMX1_UARTPIN   2
+#define     DMX1_DIRPIN   17
+#define     DMX2_UART      UART_NUM_2
+#define     DMX2_UARTPIN  12
+#define     DMX2_DIRPIN   13
+
 // Locally attached LED pixel string (P1)
 #define     LED1_DATA     22
+#define     LED1_CLK      23
 #define     LED1_NUMLEDS  20
 
 // Voltage divider central tap for BAT
@@ -28,14 +37,20 @@ const int   osc_port = 6206;
 // Input pin for Buzzer button
 #define     BUZZER1_PIN   16
 
-// E131 input via WiFi
+// TEMP: E131 input
 #define     E131_UNIVERSE  17
 #define     E131_STARTCHAN  1
 
-//////////////////Define your SSID and Password - if on AP mode this will be used as settings for AP if in Wifi mode this will be used to connect to an existing WiFi network//////////////
-const char* ssid = "MySSID";
-const char* password =  "MyPW";
 
+// Low-Level serial driver
+#include "driver/uart.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
+#define BUF_SIZE (1024)
+
+unsigned long debounceTime = 500; // ms
+unsigned int  pingCount = 0;
+unsigned int  e131_okay = 0;
 
 // Digital input
 const byte interruptPin = 16;
@@ -51,13 +66,23 @@ volatile unsigned long lastDetection = 0;
 volatile unsigned int  pingCount = 0;
 volatile unsigned int  e131_okay = 0;
 
+// Serial handler, buffer and configs
+static QueueHandle_t uart1_queue;
+static uint8_t serialBuffer[520];
+uart_config_t uart_config_data = {
+  .baud_rate   =   250000,
+  .data_bits   =   UART_DATA_8_BITS,
+  .parity      =   UART_PARITY_DISABLE,
+  .stop_bits   =   UART_STOP_BITS_2,
+  .flow_ctrl   =   UART_HW_FLOWCTRL_DISABLE
+};
+
 ///// FUNCTIONS /////
 void IRAM_ATTR handleInterrupt() {
   lastDetection = millis();
 }
 
 void setup() {
-  delay(2000);
   Serial.begin(921600);
   Serial.println("MT3000 getting ready :)");
 
@@ -71,10 +96,15 @@ void setup() {
 
   Serial.println("PostLED");
 
-  if (!LittleFS.begin()){
-      Serial.println("An Error has occurred while mounting SPIFFS");
-      return;
-  }
+  // Set up our serial port
+  //pinMode(13, OUTPUT);
+  uart_set_pin(DMX1_UART, DMX1_UARTPIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+  //uart_driver_install(EX_UART_NUM, BUF_SIZE * 2, BUF_SIZE * 2, 10, &uart1_queue, 0);
+  uart_driver_install(DMX1_UART, BUF_SIZE * 2, 0, 10, &uart1_queue, 0); // No TX buffer => write calls will block
+  uart_param_config(DMX1_UART, &uart_config_data);
+
+  // Set up trigger output
+  pinMode(DMX1_DIRPIN, OUTPUT);
 
   // Wifi config + connect
   WiFi.mode(WIFI_STA);
@@ -93,6 +123,7 @@ void setup() {
   delay(500);
 
   // Init Buzzer input
+  syncSemaphore = xSemaphoreCreateBinary();
   pinMode(BUZZER1_PIN, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(BUZZER1_PIN), handleInterrupt, FALLING);
 
@@ -111,9 +142,9 @@ void loop() {
   if (!e131.isEmpty()) {
     e131.pull(&e131_packet);     // Pull packet from ring buffer
 
-    //memcpy(serialBuffer, e131_packet.property_values+1, 512);
+    memcpy(serialBuffer, e131_packet.property_values+1, 512);
 
-
+/*
     Serial.printf("Universe %u / %u Channels | Packet#: %u / Errors: %u / CH1: %u\n",
       htons(e131_packet.universe),                 // The Universe for this packet
       htons(e131_packet.property_value_count) - 1, // Start code is ignored, we're interested in dimmer data
@@ -132,7 +163,7 @@ void loop() {
   }
 
   // Buzzer input
-  if (((millis() - lastDetection) > debounceTime) && !digitalRead(BUZZER1_PIN)) {
+  if (((millis() - lastDetection) > debounceTime) && !gpio_get_level((gpio_num_t)BUZZER1_PIN)) {
     //Serial.println("Buzzer input detected");
     OscWiFi.send(osc_host, osc_port, osc_command_trigger, 1);
     lastDetection = millis();
@@ -147,16 +178,16 @@ void loop() {
     // => 4096 = 10.56V
     float batVolt = adcVal * 10.56 / 4096;
     //Serial.printf("BAT ADC: %u BAT VOLT: %f E1.31_Okay: %u\n", analogRead(PIN_BATADC), batVolt, e131_okay);
-    OscWiFi.send(osc_host, osc_port, osc_command_ping, (float)batVolt, (unsigned int)e131_okay);
+    OscWiFi.send(osc_host, osc_port, osc_command_ping, batVolt, e131_okay);
     e131_okay = 0;
   }
 
   //memset(serialBuffer, 0, 520);
   Serial.println("Sending frame ...");
+  writeDmx();
 
   delay(5);
 }
-<<<<<<< HEAD:src/ESP32_BuzzerToOSC.ino
 
 void writeDmx() {
   uint8_t zero = 0;
@@ -182,5 +213,3 @@ void writeDmx() {
   // and turn off the driver again
   digitalWrite(DMX1_DIRPIN, LOW);
 }
-=======
->>>>>>> a744e1b (Move from ESP32 (heltec WiFi LoRa) to ESP8266 (Wemos D1 Mini) and drop DMX output for now):src/ESP8266_BuzzerController.ino
