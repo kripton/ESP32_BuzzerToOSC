@@ -1,9 +1,14 @@
 ///// INCLUDES /////
+#define AC_USE_LITTLEFS
+
 #include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
 #include <ArduinoOSCWiFi.h>
 #include <NeoPixelBus.h>
 #include <ESPAsyncE131.h>
 #include <LittleFS.h>
+#include <time.h>
+#include <AutoConnect.h>
 
 ///// CONFIG / CONSTANTS /////
 const char* wifi_ssid = "MySSID";
@@ -15,18 +20,23 @@ IPAddress   my_netmask(255, 255, 0, 0);
 
 const char* osc_command_trigger =  "/buzzer/red/trigger";
 const char* osc_command_ping =  "/buzzer/red/ping";
-const char* osc_host = "255.255.255.255";
+//const char* osc_host = "255.255.255.255";
+const char* osc_host = "172.17.206.5";
 const int   osc_port = 6206;
 
+#define ONBOARD_LED       2
+
 // Locally attached LED pixel string (P1)
-#define     LED1_DATA     22
+// !!! On the ESP8266, NeoPixel uses pin 3 !!!
+// see https://github.com/Makuna/NeoPixelBus/wiki/ESP8266-NeoMethods
+#define     LED1_DATA     3
 #define     LED1_NUMLEDS  20
 
 // Voltage divider central tap for BAT
 #define     BATADC_PIN    36
 
 // Input pin for Buzzer button
-#define     BUZZER1_PIN   16
+#define     BUZZER1_PIN   5
 
 // E131 input via WiFi
 #define     E131_UNIVERSE  17
@@ -45,19 +55,31 @@ unsigned long lastDetection = 0;
 ///// Globals /////
 e131_packet_t e131_packet;
 NeoPixelBus<NeoGrbFeature, Neo800KbpsMethod> pixels(LED1_NUMLEDS, LED1_DATA);
-ESPAsyncE131 e131(1);
+ESPAsyncE131 e131(2);
+ESP8266WebServer Server;
+AutoConnect      Portal(Server);
 volatile unsigned long debounceTime = 500; // ms
 volatile unsigned long lastDetection = 0;
+volatile unsigned long triggered = false;
 volatile unsigned int  pingCount = 0;
 volatile unsigned int  e131_okay = 0;
 
 ///// FUNCTIONS /////
 void IRAM_ATTR handleInterrupt() {
-  lastDetection = millis();
+  if ((millis() - lastDetection) > debounceTime) {
+    lastDetection = millis();
+    triggered = true;
+  }
+}
+
+void rootPage() {
+  char content[] = "Hello, world";
+  Server.send(200, "text/plain", content);
 }
 
 void setup() {
-  delay(2000);
+  delay(5000);
+
   Serial.begin(921600);
   Serial.println("MT3000 getting ready :)");
 
@@ -69,20 +91,24 @@ void setup() {
   }
   pixels.Show();
 
-  Serial.println("PostLED");
-
   if (!LittleFS.begin()){
       Serial.println("An Error has occurred while mounting SPIFFS");
       return;
   }
 
+  Server.on("/", rootPage);
+  if (Portal.begin()) {
+    Serial.println("WiFi connected: " + WiFi.localIP().toString());
+  } else {
+    Serial.println("Portal.begin() failed");
+  }
+
   // Wifi config + connect
-  WiFi.mode(WIFI_STA);
-  WiFi.config(my_ip, my_gw, my_netmask);
-  WiFi.begin(wifi_ssid, wifi_password);
+  /*
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
   }
+  */
 
   // Set the LEDs to GREEN briefly
   pixels.ClearTo(RgbColor(0, 0, 0));
@@ -97,7 +123,7 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(BUZZER1_PIN), handleInterrupt, FALLING);
 
   // Set up DMX receiver
-  e131.begin(E131_MULTICAST, E131_UNIVERSE); 
+  e131.begin(E131_MULTICAST, E131_UNIVERSE, 2);
 
   // Clear LEDs
   pixels.ClearTo(RgbColor(0, 0, 0));
@@ -107,13 +133,14 @@ void setup() {
 // Looooooooop
 void loop() {
   // DMX input to LEDs
-  Serial.printf("E131 empty: %d\n", e131.isEmpty());
+  //Serial.printf("E131 empty: %d\n", e131.isEmpty());
   if (!e131.isEmpty()) {
     e131.pull(&e131_packet);     // Pull packet from ring buffer
 
     //memcpy(serialBuffer, e131_packet.property_values+1, 512);
 
 
+/*
     Serial.printf("Universe %u / %u Channels | Packet#: %u / Errors: %u / CH1: %u\n",
       htons(e131_packet.universe),                 // The Universe for this packet
       htons(e131_packet.property_value_count) - 1, // Start code is ignored, we're interested in dimmer data
@@ -121,6 +148,7 @@ void loop() {
       e131.stats.packet_errors,               // Packet error counter
       e131_packet.property_values[1]             // Dimmer data for Channel 1
     );
+*/
 
     e131_okay = 1;
     pixels.ClearTo(RgbColor(0, 0, 0));
@@ -132,14 +160,17 @@ void loop() {
   }
 
   // Buzzer input
-  if (((millis() - lastDetection) > debounceTime) && !digitalRead(BUZZER1_PIN)) {
+  //Serial.printf("NOW: %lu, lastDetection@: %lu, BUZZER1_PIN: %d\n", millis(), lastDetection, digitalRead(BUZZER1_PIN));
+  if (triggered) {
+    triggered = false;
     //Serial.println("Buzzer input detected");
     OscWiFi.send(osc_host, osc_port, osc_command_trigger, 1);
-    lastDetection = millis();
   }
 
+  Portal.handleClient();
+
   pingCount++;
-  if (pingCount > 100) {
+  if (pingCount > 1000) {
     pingCount = 0;
     unsigned long adcVal = analogRead(BATADC_PIN);
     // 0 = 0V, 4096 = 3.3V
@@ -152,9 +183,9 @@ void loop() {
   }
 
   //memset(serialBuffer, 0, 520);
-  Serial.println("Sending frame ...");
+  //Serial.println("Sending frame ...");
 
-  delay(5);
+  delay(1);
 }
 <<<<<<< HEAD:src/ESP32_BuzzerToOSC.ino
 
