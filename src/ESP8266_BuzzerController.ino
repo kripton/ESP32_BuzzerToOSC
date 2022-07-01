@@ -46,7 +46,7 @@ int   e131_startchan      = 1;
 ///// Globals /////
 e131_packet_t e131_packet;
 NeoPixelBus<NeoGrbFeature, Neo800KbpsMethod> pixels(LED1_NUMLEDS, LED1_DATA);
-ESPAsyncE131 e131(2);
+ESPAsyncE131 e131(1);
 ESP8266WebServer Server;
 AutoConnect      Portal(Server);
 AutoConnectConfig Config;
@@ -75,8 +75,13 @@ String onSettingsSavePage(AutoConnectAux& aux, PageArgument& args) {
   LittleFS.begin();
   File param = LittleFS.open("/params.json", "w");
 
+  // The page passed via "aux" parameter is /params_save
+  // We need the parameters of the /params page
+  AutoConnectAux* paramsPage;
+  paramsPage = Portal.aux("/params");
+
   // Save all elements and values
-  aux.saveElement(param);
+  paramsPage->saveElement(param);
 
   param.close();
   LittleFS.end();
@@ -92,7 +97,7 @@ void setup() {
   pixels.Begin();
   pixels.ClearTo(RgbColor(0, 0, 0));
   for(int i=0; i < LED1_NUMLEDS; i++) {
-    pixels.SetPixelColor(i, RgbColor((i * 10) + 10, 0, 0));
+    pixels.SetPixelColor(i, RgbColor(255, 0, 0));
   }
   pixels.Show();
 
@@ -117,7 +122,7 @@ void setup() {
         {
           "name": "caption2",
           "type": "ACText",
-          "value": "Parameters saved!"
+          "value": "Parameters saved! Please reset the board to apply!"
         }
       ]
     }
@@ -125,25 +130,25 @@ void setup() {
 )raw";
 
   // Load the form elements and values from the file system
+  AutoConnectAux* settingsPage;
   File paramsFile = LittleFS.open("/params.json", "r");
   Portal.load(paramsFile);
   paramsFile.close();
   LittleFS.end();
+  settingsPage = Portal.aux("/params");
 
   // Also save the parameter values in the variables the program works with
-  AutoConnectAux* settingsPage;
-  settingsPage = Portal.aux("/params");
   AutoConnectSelect& params_name = settingsPage->getElement<AutoConnectSelect>("param_name");
   sprintf(osc_command_trigger, "/buzzer/%s/trigger", params_name.value().c_str());
-  sprintf(osc_command_trigger, "/buzzer/%s/ping", params_name.value().c_str());
+  sprintf(osc_command_ping, "/buzzer/%s/ping", params_name.value().c_str());
   AutoConnectInput& params_osc_dest_host = settingsPage->getElement<AutoConnectInput>("param_osc_dest_host");
   sprintf(osc_host, "%s", params_osc_dest_host.value.c_str());
   AutoConnectInput& params_osc_dest_port = settingsPage->getElement<AutoConnectInput>("param_osc_dest_port");
-  osc_port = atoi(params_osc_dest_port.value.c_str());
+  osc_port = params_osc_dest_port.value.toInt();
   AutoConnectInput& param_e131_universe = settingsPage->getElement<AutoConnectInput>("param_e131_universe");
-  e131_universe = atoi(param_e131_universe.value.c_str());
+  e131_universe = param_e131_universe.value.toInt();
   AutoConnectInput& param_e131_start = settingsPage->getElement<AutoConnectInput>("param_e131_start");
-  e131_startchan = atoi(param_e131_start.value.c_str());
+  e131_startchan = param_e131_start.value.toInt();
 
   Portal.load(params_save_page);
   AutoConnectAux* settingsSavePage;
@@ -155,7 +160,29 @@ void setup() {
   // Set the LEDs to GREEN briefly
   pixels.ClearTo(RgbColor(0, 0, 0));
   for(int i = 0; i < LED1_NUMLEDS; i++) {
-    pixels.SetPixelColor(i, RgbColor(0, i, 0));
+    pixels.SetPixelColor(i, RgbColor(0, 255, 0));
+  }
+  pixels.Show();
+  delay(500);
+
+  // Set the LEDs to the configured color of the buzzer
+  pixels.ClearTo(RgbColor(0, 0, 0));
+  RgbColor col = RgbColor(0, 0, 0);
+  if (params_name.value() == "red") {
+    col = RgbColor(255, 0, 0);
+  } else if (params_name.value() == "blue") {
+    col = RgbColor(0, 0, 255);
+  } else if (params_name.value() == "green") {
+    col = RgbColor(0, 255, 0);
+  } else if (params_name.value() == "yellow") {
+    col = RgbColor(255, 255, 0);
+  } else if (params_name.value() == "magenta") {
+    col = RgbColor(255, 0, 255);
+  } else if (params_name.value() == "cyan") {
+    col = RgbColor(0, 255, 255);
+  }
+  for(int i = 0; i < LED1_NUMLEDS; i++) {
+    pixels.SetPixelColor(i, col);
   }
   pixels.Show();
   delay(500);
@@ -165,7 +192,7 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(BUZZER1_PIN), handleInterrupt, FALLING);
 
   // Set up DMX receiver
-  e131.begin(E131_MULTICAST, e131_universe, 2);
+  e131.begin(E131_MULTICAST, e131_universe, 1);
 
   // Clear LEDs
   pixels.ClearTo(RgbColor(0, 0, 0));
@@ -181,9 +208,9 @@ void loop() {
 
     //memcpy(serialBuffer, e131_packet.property_values+1, 512);
 
-
 /*
-    Serial.printf("Universe %u / %u Channels | Packet#: %u / Errors: %u / CH1: %u\n",
+    Serial.printf("ConfedUniverse: %u | Universe %u / %u Channels | Packet#: %u / Errors: %u / CH1: %u\n",
+      e131_universe,
       htons(e131_packet.universe),                 // The Universe for this packet
       htons(e131_packet.property_value_count) - 1, // Start code is ignored, we're interested in dimmer data
       e131.stats.num_packets,                 // Packet counter
@@ -192,13 +219,15 @@ void loop() {
     );
 */
 
-    e131_okay = 1;
-    pixels.ClearTo(RgbColor(0, 0, 0));
-    for(int i = 0; i < LED1_NUMLEDS; i++) {
-      int chan = e131_startchan + i*3;
-      pixels.SetPixelColor(i, RgbColor(e131_packet.property_values[chan], e131_packet.property_values[chan+1], e131_packet.property_values[chan+2]));
+    if (e131_universe == htons(e131_packet.universe)) {
+      e131_okay = 1;
+      pixels.ClearTo(RgbColor(0, 0, 0));
+      for(int i = 0; i < LED1_NUMLEDS; i++) {
+        int chan = e131_startchan + i*3;
+        pixels.SetPixelColor(i, RgbColor(e131_packet.property_values[chan], e131_packet.property_values[chan+1], e131_packet.property_values[chan+2]));
+      }
+      pixels.Show();
     }
-    pixels.Show();
   }
 
   // Buzzer input
