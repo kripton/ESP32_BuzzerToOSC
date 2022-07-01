@@ -1,5 +1,7 @@
 ///// INCLUDES /////
 #define AC_USE_LITTLEFS
+#define FORMAT_ON_FAIL  true        // Autoconnect
+#define AUTOCONNECT_STARTUPTIME 10
 
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
@@ -18,11 +20,14 @@ IPAddress   my_ip(172, 17, 206, 31);
 IPAddress   my_gw(0, 0, 0, 0);
 IPAddress   my_netmask(255, 255, 0, 0);
 
-const char* osc_command_trigger =  "/buzzer/red/trigger";
-const char* osc_command_ping =  "/buzzer/red/ping";
-//const char* osc_host = "255.255.255.255";
-const char* osc_host = "172.17.206.5";
-const int   osc_port = 6206;
+// Will be overridden by the values from the AutoConnect config page later
+// See data/params.json
+char* osc_command_trigger = "/buzzer/placeholder/trigger";
+char* osc_command_ping    = "/buzzer/placeholder/ping";
+char* osc_host            = "255.255.255.255";
+int   osc_port            = 6206;
+int   e131_universe       = 17;
+int   e131_startchan      = 1;
 
 #define ONBOARD_LED       2
 
@@ -38,26 +43,13 @@ const int   osc_port = 6206;
 // Input pin for Buzzer button
 #define     BUZZER1_PIN   5
 
-// E131 input via WiFi
-#define     E131_UNIVERSE  17
-#define     E131_STARTCHAN  1
-
-//////////////////Define your SSID and Password - if on AP mode this will be used as settings for AP if in Wifi mode this will be used to connect to an existing WiFi network//////////////
-const char* ssid = "MySSID";
-const char* password =  "MyPW";
-
-
-// Digital input
-const byte interruptPin = 16;
-
-unsigned long lastDetection = 0;
-
 ///// Globals /////
 e131_packet_t e131_packet;
 NeoPixelBus<NeoGrbFeature, Neo800KbpsMethod> pixels(LED1_NUMLEDS, LED1_DATA);
 ESPAsyncE131 e131(2);
 ESP8266WebServer Server;
 AutoConnect      Portal(Server);
+AutoConnectConfig Config;
 volatile unsigned long debounceTime = 500; // ms
 volatile unsigned long lastDetection = 0;
 volatile unsigned long triggered = false;
@@ -72,14 +64,27 @@ void IRAM_ATTR handleInterrupt() {
   }
 }
 
+// Redirect "/" to "/_ac"
 void rootPage() {
-  char content[] = "Hello, world";
-  Server.send(200, "text/plain", content);
+  Server.sendHeader("Location", String("/_ac"), true);
+  Server.send ( 302, "text/plain", "");
+}
+
+// Handle parameter changes and save them persistently
+String onSettingsSavePage(AutoConnectAux& aux, PageArgument& args) {
+  LittleFS.begin();
+  File param = LittleFS.open("/params.json", "w");
+
+  // Save all elements and values
+  aux.saveElement(param);
+
+  param.close();
+  LittleFS.end();
+
+  return String();
 }
 
 void setup() {
-  delay(5000);
-
   Serial.begin(921600);
   Serial.println("MT3000 getting ready :)");
 
@@ -92,23 +97,60 @@ void setup() {
   pixels.Show();
 
   if (!LittleFS.begin()){
-      Serial.println("An Error has occurred while mounting SPIFFS");
+      Serial.println("An Error has occurred while mounting LittleFS");
       return;
   }
 
   Server.on("/", rootPage);
-  if (Portal.begin()) {
-    Serial.println("WiFi connected: " + WiFi.localIP().toString());
-  } else {
-    Serial.println("Portal.begin() failed");
-  }
+  Config.autoReconnect = true;
+  Config.apid = "WiFiBuzzer";
+  Config.psk  = "";
+  Portal.config(Config);
+ 
+  // Second one contains the success message
+  const char params_save_page[] = R"raw(
+    {
+      "title": "Buzzer Params",
+      "uri": "/params_save",
+      "menu": false,
+      "element": [
+        {
+          "name": "caption2",
+          "type": "ACText",
+          "value": "Parameters saved!"
+        }
+      ]
+    }
+]
+)raw";
 
-  // Wifi config + connect
-  /*
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-  }
-  */
+  // Load the form elements and values from the file system
+  File paramsFile = LittleFS.open("/params.json", "r");
+  Portal.load(paramsFile);
+  paramsFile.close();
+  LittleFS.end();
+
+  // Also save the parameter values in the variables the program works with
+  AutoConnectAux* settingsPage;
+  settingsPage = Portal.aux("/params");
+  AutoConnectSelect& params_name = settingsPage->getElement<AutoConnectSelect>("param_name");
+  sprintf(osc_command_trigger, "/buzzer/%s/trigger", params_name.value().c_str());
+  sprintf(osc_command_trigger, "/buzzer/%s/ping", params_name.value().c_str());
+  AutoConnectInput& params_osc_dest_host = settingsPage->getElement<AutoConnectInput>("param_osc_dest_host");
+  sprintf(osc_host, "%s", params_osc_dest_host.value.c_str());
+  AutoConnectInput& params_osc_dest_port = settingsPage->getElement<AutoConnectInput>("param_osc_dest_port");
+  osc_port = atoi(params_osc_dest_port.value.c_str());
+  AutoConnectInput& param_e131_universe = settingsPage->getElement<AutoConnectInput>("param_e131_universe");
+  e131_universe = atoi(param_e131_universe.value.c_str());
+  AutoConnectInput& param_e131_start = settingsPage->getElement<AutoConnectInput>("param_e131_start");
+  e131_startchan = atoi(param_e131_start.value.c_str());
+
+  Portal.load(params_save_page);
+  AutoConnectAux* settingsSavePage;
+  settingsSavePage = Portal.aux("/params_save");
+  settingsSavePage->on(onSettingsSavePage);
+
+  Portal.begin();
 
   // Set the LEDs to GREEN briefly
   pixels.ClearTo(RgbColor(0, 0, 0));
@@ -123,7 +165,7 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(BUZZER1_PIN), handleInterrupt, FALLING);
 
   // Set up DMX receiver
-  e131.begin(E131_MULTICAST, E131_UNIVERSE, 2);
+  e131.begin(E131_MULTICAST, e131_universe, 2);
 
   // Clear LEDs
   pixels.ClearTo(RgbColor(0, 0, 0));
@@ -153,7 +195,7 @@ void loop() {
     e131_okay = 1;
     pixels.ClearTo(RgbColor(0, 0, 0));
     for(int i = 0; i < LED1_NUMLEDS; i++) {
-      int chan = E131_STARTCHAN + i*3;
+      int chan = e131_startchan + i*3;
       pixels.SetPixelColor(i, RgbColor(e131_packet.property_values[chan], e131_packet.property_values[chan+1], e131_packet.property_values[chan+2]));
     }
     pixels.Show();

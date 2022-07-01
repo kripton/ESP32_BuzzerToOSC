@@ -1,0 +1,48 @@
+[
+    {
+      "title": "Buzzer Params",
+      "uri": "/params",
+      "menu": true,
+      "element": [
+        {
+          "name": "param_name",
+          "type": "ACSelect",
+          "option": ["red","blue","green","yellow","magenta","cyan"],
+          "label": "Buzzer name / color"
+        },
+        {
+          "name": "param_osc_dest_host",
+          "type": "ACInput",
+          "value": "255.255.255.255",
+          "label": "OSC destination host"
+        },
+        {
+          "name": "param_osc_dest_port",
+          "type": "ACInput",
+          "value": "6206",
+          "label": "OSC destination port",
+          "apply": "number"
+        },
+        {
+          "name": "param_e131_universe",
+          "type": "ACInput",
+          "value": "17",
+          "label": "E1.31 universe",
+          "apply": "number"
+        },
+        {
+          "name": "param_e131_start",
+          "type": "ACInput",
+          "value": "1",
+          "label": "E1.31 start channel",
+          "apply": "number"
+        },
+        {
+          "name": "save",
+          "type": "ACSubmit",
+          "value": "SAVE",
+          "uri": "/params_save"
+        }
+      ]
+    }
+]
