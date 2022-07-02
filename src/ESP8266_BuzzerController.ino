@@ -258,31 +258,3 @@ void loop() {
 
   delay(1);
 }
-<<<<<<< HEAD:src/ESP32_BuzzerToOSC.ino
-
-void writeDmx() {
-  uint8_t zero = 0;
-
-  // activate the driver and give it some time to stabilize
-  digitalWrite(DMX1_DIRPIN, HIGH);
-  delayMicroseconds(500);
-
-  // Send BREAK
-  uart_set_line_inverse(DMX1_UART, UART_INVERSE_DISABLE);
-  delayMicroseconds(200);
-
-  // Send MARK_AFTER_BREAK
-  uart_set_line_inverse(DMX1_UART, UART_INVERSE_TXD);
-  delayMicroseconds(20);
-
-  // Send one universe of data
-  uart_write_bytes(DMX1_UART, (const char*)&zero, 1); // start byte
-  uart_write_bytes(DMX1_UART, (const char*)serialBuffer, 512);
-
-  // Wait until the TX buffer has been sent completely
-  delay(3);
-  // and turn off the driver again
-  digitalWrite(DMX1_DIRPIN, LOW);
-}
-=======
->>>>>>> a744e1b (Move from ESP32 (heltec WiFi LoRa) to ESP8266 (Wemos D1 Mini) and drop DMX output for now):src/ESP8266_BuzzerController.ino
