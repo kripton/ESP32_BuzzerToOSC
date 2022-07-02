@@ -244,7 +244,7 @@ void loop() {
     triggered = false;
     handled = millis();
     //Serial.println("Buzzer input detected");
-    OscWiFi.send(osc_host, osc_port, osc_command_trigger, 1);
+    OscWiFi.send(osc_host, osc_port, osc_command_trigger, 255);
   }
 
   Portal.handleClient();
