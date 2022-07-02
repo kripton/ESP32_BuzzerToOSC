@@ -53,6 +53,7 @@ AutoConnectConfig Config;
 volatile unsigned long debounceTime = 500; // ms
 volatile unsigned long lastDetection = 0;
 volatile unsigned long triggered = false;
+volatile unsigned long handled = 0;
 volatile unsigned int  pingCount = 0;
 volatile unsigned int  e131_okay = 0;
 
@@ -201,6 +202,13 @@ void setup() {
 
 // Looooooooop
 void loop() {
+
+  // Send a "0"-OSC-message so the "1"-message is actually change
+  if (handled && ((millis() - handled) > 100)) {
+    handled = 0;
+    OscWiFi.send(osc_host, osc_port, osc_command_trigger, 0);
+  }
+
   // DMX input to LEDs
   //Serial.printf("E131 empty: %d\n", e131.isEmpty());
   if (!e131.isEmpty()) {
@@ -234,6 +242,7 @@ void loop() {
   //Serial.printf("NOW: %lu, lastDetection@: %lu, BUZZER1_PIN: %d\n", millis(), lastDetection, digitalRead(BUZZER1_PIN));
   if (triggered) {
     triggered = false;
+    handled = millis();
     //Serial.println("Buzzer input detected");
     OscWiFi.send(osc_host, osc_port, osc_command_trigger, 1);
   }
