@@ -7,7 +7,7 @@
 #include <ESP8266WebServer.h>
 #include <ArduinoOSCWiFi.h>
 #include <NeoPixelBus.h>
-#include <ESPAsyncE131.h>
+#include <ArtnetWiFi.h>
 #include <LittleFS.h>
 #include <time.h>
 #include <AutoConnect.h>
@@ -26,8 +26,8 @@ char* osc_command_trigger = "/buzzer/placeholder/trigger";
 char* osc_command_ping    = "/buzzer/placeholder/ping";
 char* osc_host            = "255.255.255.255";
 int   osc_port            = 6206;
-int   e131_universe       = 17;
-int   e131_startchan      = 1;
+int   dmx_universe       = 0;
+int   dmx_startchan      = 0;
 
 #define ONBOARD_LED       2
 
@@ -44,9 +44,8 @@ int   e131_startchan      = 1;
 #define     BUZZER1_PIN   5
 
 ///// Globals /////
-e131_packet_t e131_packet;
+ArtnetWiFiReceiver artnet;
 NeoPixelBus<NeoGrbFeature, Neo800KbpsMethod> pixels(LED1_NUMLEDS, LED1_DATA);
-ESPAsyncE131 e131(1);
 ESP8266WebServer Server;
 AutoConnect      Portal(Server);
 AutoConnectConfig Config;
@@ -55,7 +54,7 @@ volatile unsigned long lastDetection = 0;
 volatile unsigned long triggered = false;
 volatile unsigned long handled = 0;
 volatile unsigned int  pingCount = 0;
-volatile unsigned int  e131_okay = 0;
+volatile unsigned int  dmx_in_okay = 0;
 
 ///// FUNCTIONS /////
 void IRAM_ATTR handleInterrupt() {
@@ -88,6 +87,20 @@ String onSettingsSavePage(AutoConnectAux& aux, PageArgument& args) {
   LittleFS.end();
 
   return String();
+}
+
+void artNetCallback(const unsigned char* data, short unsigned int size) {
+  // set led
+  // artnet data size per packet is 512 max
+  // so there is max 170 pixel per packet (per universe)
+
+  dmx_in_okay = 1;
+  pixels.ClearTo(RgbColor(0, 0, 0));
+  for(int i = 0; i < LED1_NUMLEDS; i++) {
+    int chan = dmx_startchan + i*3;
+    pixels.SetPixelColor(i, RgbColor(data[chan], data[chan+1], data[chan+2]));
+  }
+  pixels.Show();
 }
 
 void setup() {
@@ -146,10 +159,10 @@ void setup() {
   sprintf(osc_host, "%s", params_osc_dest_host.value.c_str());
   AutoConnectInput& params_osc_dest_port = settingsPage->getElement<AutoConnectInput>("param_osc_dest_port");
   osc_port = params_osc_dest_port.value.toInt();
-  AutoConnectInput& param_e131_universe = settingsPage->getElement<AutoConnectInput>("param_e131_universe");
-  e131_universe = param_e131_universe.value.toInt();
-  AutoConnectInput& param_e131_start = settingsPage->getElement<AutoConnectInput>("param_e131_start");
-  e131_startchan = param_e131_start.value.toInt();
+  AutoConnectInput& param_dmx_universe = settingsPage->getElement<AutoConnectInput>("param_dmx_universe");
+  dmx_universe = param_dmx_universe.value.toInt();
+  AutoConnectInput& param_dmx_start = settingsPage->getElement<AutoConnectInput>("param_dmx_start");
+  dmx_startchan = param_dmx_start.value.toInt();
 
   Portal.load(params_save_page);
   AutoConnectAux* settingsSavePage;
@@ -193,7 +206,12 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(BUZZER1_PIN), handleInterrupt, FALLING);
 
   // Set up DMX receiver
-  e131.begin(E131_MULTICAST, e131_universe, 1);
+  artnet.begin();
+  // artnet.subscribe_net(0);     // optionally you can change
+  // artnet.subscribe_subnet(0);  // optionally you can change
+
+  // if Artnet packet comes to this universe, this function (lambda) is called
+  artnet.subscribe(dmx_universe, artNetCallback);
 
   // Clear LEDs
   pixels.ClearTo(RgbColor(0, 0, 0));
@@ -209,35 +227,6 @@ void loop() {
     OscWiFi.send(osc_host, osc_port, osc_command_trigger, 0);
   }
 
-  // DMX input to LEDs
-  //Serial.printf("E131 empty: %d\n", e131.isEmpty());
-  if (!e131.isEmpty()) {
-    e131.pull(&e131_packet);     // Pull packet from ring buffer
-
-    //memcpy(serialBuffer, e131_packet.property_values+1, 512);
-
-/*
-    Serial.printf("ConfedUniverse: %u | Universe %u / %u Channels | Packet#: %u / Errors: %u / CH1: %u\n",
-      e131_universe,
-      htons(e131_packet.universe),                 // The Universe for this packet
-      htons(e131_packet.property_value_count) - 1, // Start code is ignored, we're interested in dimmer data
-      e131.stats.num_packets,                 // Packet counter
-      e131.stats.packet_errors,               // Packet error counter
-      e131_packet.property_values[1]             // Dimmer data for Channel 1
-    );
-*/
-
-    if (e131_universe == htons(e131_packet.universe)) {
-      e131_okay = 1;
-      pixels.ClearTo(RgbColor(0, 0, 0));
-      for(int i = 0; i < LED1_NUMLEDS; i++) {
-        int chan = e131_startchan + i*3;
-        pixels.SetPixelColor(i, RgbColor(e131_packet.property_values[chan], e131_packet.property_values[chan+1], e131_packet.property_values[chan+2]));
-      }
-      pixels.Show();
-    }
-  }
-
   // Buzzer input
   //Serial.printf("NOW: %lu, lastDetection@: %lu, BUZZER1_PIN: %d\n", millis(), lastDetection, digitalRead(BUZZER1_PIN));
   if (triggered) {
@@ -246,6 +235,8 @@ void loop() {
     //Serial.println("Buzzer input detected");
     OscWiFi.send(osc_host, osc_port, osc_command_trigger, 255);
   }
+
+  artnet.parse();  // check if artnet packet has come and execute callback
 
   Portal.handleClient();
 
@@ -257,9 +248,9 @@ void loop() {
     // Voltage divider with 220k (high side) and 100k (low side)
     // => 4096 = 10.56V
     float batVolt = adcVal * 10.56 / 4096;
-    //Serial.printf("BAT ADC: %u BAT VOLT: %f E1.31_Okay: %u\n", analogRead(PIN_BATADC), batVolt, e131_okay);
-    OscWiFi.send(osc_host, osc_port, osc_command_ping, (float)batVolt, (unsigned int)e131_okay);
-    e131_okay = 0;
+    //Serial.printf("BAT ADC: %u BAT VOLT: %f E1.31_Okay: %u\n", analogRead(PIN_BATADC), batVolt, dmx_in_okay);
+    OscWiFi.send(osc_host, osc_port, osc_command_ping, (float)batVolt, (unsigned int)dmx_in_okay);
+    dmx_in_okay = 0;
   }
 
   //memset(serialBuffer, 0, 520);

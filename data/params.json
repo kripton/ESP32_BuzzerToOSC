@@ -24,17 +24,17 @@
           "apply": "number"
         },
         {
-          "name": "param_e131_universe",
+          "name": "param_dmx_universe",
           "type": "ACInput",
-          "value": "17",
-          "label": "E1.31 universe",
+          "value": "0",
+          "label": "Art-Net universe (0, 1, 2, 3)",
           "apply": "number"
         },
         {
-          "name": "param_e131_start",
+          "name": "param_dmx_start",
           "type": "ACInput",
-          "value": "1",
-          "label": "E1.31 start channel",
+          "value": "0",
+          "label": "Art-Net start-channel (0-based)",
           "apply": "number"
         },
         {
